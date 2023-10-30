@@ -187,7 +187,7 @@ const Simplices = memo(function Simplices({
 function resizeCanvas(canvas: HTMLCanvasElement) {
   const dpr = window.devicePixelRatio;
 
-  const width = window.innerWidth - 240;
+  const width = window.innerWidth - 300;
   const height = window.innerHeight;
 
   canvas.width = width * dpr;
@@ -202,9 +202,16 @@ function resizeCanvas(canvas: HTMLCanvasElement) {
   }
 }
 
-function App() {
+interface SimplexEditorProps {
+  simplexTree: SimplexTreeNode[],
+  setSimplexTree: React.Dispatch<React.SetStateAction<SimplexTreeNode[]>>,
+  vertices: [number, number][],
+  setVertices: React.Dispatch<React.SetStateAction<[number, number][]>>,
+  setView: React.Dispatch<React.SetStateAction<'editor' | 'details'>>,
+}
+
+function SimplexEditor({ simplexTree, setSimplexTree, vertices, setVertices, setView }: SimplexEditorProps) {
   const canvasRef = useRef(null as null | HTMLCanvasElement);
-  const [vertices, setVertices] = useState([] as [number, number][]);
   const [drag, setDrag] = useState(
     null as null | {
       initialOffsetFromCanvasCenter: [number, number];
@@ -219,7 +226,6 @@ function App() {
   );
   // Store canvas dimensions as state so that we rerender when the window resizes.
   const [, setCanvasDimensions] = useState([0, 0] as [number, number]);
-  const [simplexTree, setSimplexTree] = useState([] as SimplexTreeNode[]);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -229,7 +235,7 @@ function App() {
 
       const windowResize = () => {
         resizeCanvas(canvas);
-        setCanvasDimensions([window.innerWidth - 240, window.innerHeight]);
+        setCanvasDimensions([window.innerWidth - 300, window.innerHeight]);
       };
 
       window.addEventListener("resize", windowResize);
@@ -475,14 +481,24 @@ function App() {
       <div className="grow h-screen overflow-auto bg-slate-200 p-2 space-y-3">
         {vertices.length === 0 && <p>Click on the canvas to create vertices.</p>}
         {selectedVertices === null && vertices.length > 1 && (
-          <button
-            onClick={() => {
-              setSelectedVertices([]);
-            }}
-            className="bg-slate-700 text-white p-1 rounded"
-          >
-            New simplex
-          </button>
+          <div className="space-x-3">
+            <button
+              onClick={() => {
+                setSelectedVertices([]);
+              }}
+              className="bg-slate-700 text-white p-1 rounded"
+            >
+              New simplex
+            </button>
+            <button
+              onClick={() => {
+                setView('details');
+              }}
+              className="bg-slate-700 text-white p-1 rounded"
+            >
+              Simplex details
+            </button>
+          </div>
         )}
         {selectedVertices !== null && (
           <div className="space-x-3">
@@ -530,6 +546,255 @@ function App() {
       </div>
     </div>
   );
+}
+
+// Takes a list of p-simplices and returns Zp and Bp-1.
+// Each simplex is assumed to be a sorted list of it's vertices.
+function homologyGroups(simplices: number[][]) {
+  if (simplices.length === 0) {
+    return {
+      cycles: [],
+      boundaries: [],
+    };
+  }
+
+  // 0-simplices
+  if (simplices[0].length === 1) {
+    return {
+      cycles: simplices.map(simplex => [simplex]),
+      boundaries: [],
+    };
+  }
+
+  const facets: number[][] = [];
+  const facetToIndex = new Map<string, number>(); // Index of each facet in facets.
+
+  // Columns of the matrix
+  const columns = simplices.map((simplex, index) => {
+    const simplexIndices = new Set<number>();
+    simplexIndices.add(index);
+
+    const boundaryFacetIndices = new Set<number>();
+    for (let i = 0; i < simplex.length; i++) {
+      const facet = [...simplex.slice(0, i), ...simplex.slice(i + 1)];
+      let facetIndex = facetToIndex.get(JSON.stringify(facet));
+      if (facetIndex === undefined) {
+        facetIndex = facets.length;
+        facets.push(facet);
+        facetToIndex.set(JSON.stringify(facet), facetIndex);
+      }
+      boundaryFacetIndices.add(facetIndex);
+    }
+
+    return {
+      simplexIndices,
+      boundaryFacetIndices,
+    };
+  });
+
+  // Map from a 'last value' to the index of the column that has that value.
+  const lastIndex = new Map<number, number>();
+  const emptyBoundary = new Set<number>();
+
+  columns.forEach((column, index) => {
+    for (; ;) {
+      const { simplexIndices, boundaryFacetIndices } = column;
+
+      let columnLast = -1;
+      boundaryFacetIndices.forEach(facetIndex => {
+        if (facetIndex > columnLast) {
+          columnLast = facetIndex;
+        }
+      });
+      if (columnLast === -1) {
+        emptyBoundary.add(index);
+        return;
+      }
+
+      const columnWithSameLastIndex = lastIndex.get(columnLast);
+      if (columnWithSameLastIndex === undefined) {
+        lastIndex.set(columnLast, index);
+        return;
+      }
+
+      const { simplexIndices: prevSimplexIndices, boundaryFacetIndices: prevBoundaryFacetIndices } = columns[columnWithSameLastIndex];
+
+      prevSimplexIndices.forEach(simplexIndex => {
+        if (simplexIndices.has(simplexIndex)) {
+          simplexIndices.delete(simplexIndex);
+        } else {
+          simplexIndices.add(simplexIndex);
+        }
+      });
+
+      prevBoundaryFacetIndices.forEach(facetIndex => {
+        if (boundaryFacetIndices.has(facetIndex)) {
+          boundaryFacetIndices.delete(facetIndex);
+        } else {
+          boundaryFacetIndices.add(facetIndex);
+        }
+      });
+    }
+  });
+
+  const cycles = [...emptyBoundary.values()].map(columnIndex => {
+    const column = columns[columnIndex];
+    return [...column.simplexIndices.values()].map(simplexIndex => simplices[simplexIndex]);
+  });
+
+  const boundaries = [...lastIndex.values()].map(columnIndex => {
+    const column = columns[columnIndex];
+    return [...column.boundaryFacetIndices.values()].map(facetIndex => facets[facetIndex]);
+  });
+
+  return {
+    cycles,
+    boundaries
+  };
+}
+
+interface SimplexDetailsProps {
+  simplexTree: SimplexTreeNode[],
+  vertices: [number, number][],
+  setView: React.Dispatch<React.SetStateAction<'editor' | 'details'>>
+}
+
+function SimplexDetails({ simplexTree, vertices, setView }: SimplexDetailsProps) {
+  const simplices = new Map() as Map<number, number[][]>;
+  simplexTree.forEach((vertexTree) => {
+    insertSimplices(vertexTree, [], simplices);
+  });
+
+  const vertexSimplices = simplices.get(0) ?? [];
+  const edges = simplices.get(1) ?? [];
+  const triangles = simplices.get(2) ?? [];
+
+  const { cycles: z0 } = homologyGroups(vertexSimplices);
+  const { cycles: z1, boundaries: b0 } = homologyGroups(edges);
+  const { boundaries: b1 } = homologyGroups(triangles);
+
+  let xmin = vertices.length > 0 ? vertices[0][0] : 0;
+  let ymin = vertices.length > 0 ? vertices[0][1] : 0;
+  let xmax = vertices.length > 0 ? vertices[0][0] : 0;
+  let ymax = vertices.length > 0 ? vertices[0][1] : 0;
+  vertices.forEach(vertex => {
+    xmin = Math.min(xmin, vertex[0]);
+    ymin = Math.min(ymin, vertex[1]);
+    xmax = Math.max(xmax, vertex[0]);
+    ymax = Math.max(ymax, vertex[1]);
+  });
+  const dimension = Math.max(xmax - xmin + 20, ymax - ymin + 20);
+
+  const simplicialComplexSVGElements = (<>
+    {triangles.map((triangle, index) =>
+      <polygon key={index}
+        points={`${vertices[triangle[0]][0]},${vertices[triangle[0]][1]} ${vertices[triangle[1]][0]},${vertices[triangle[1]][1]} ${vertices[triangle[2]][0]},${vertices[triangle[2]][1]}`}
+        fill="rgb(220, 220, 220)" />)}
+    {edges.map((edge, index) =>
+      <line key={index}
+        x1={`${vertices[edge[0]][0]}`} y1={`${vertices[edge[0]][1]}`}
+        x2={`${vertices[edge[1]][0]}`} y2={`${vertices[edge[1]][1]}`}
+        stroke="black" />)}
+    {vertices.map((vertex, index) => <circle key={index} cx={`${vertex[0]}`} cy={`${vertex[1]}`} r={`${5 * dimension / 300}`} />)}
+  </>);
+
+  return (
+    <div className="p-5 space-y-10">
+      <div className="space-y-5">
+        <div>
+          <button
+            onClick={() => {
+              setView('editor');
+            }}
+            className="bg-slate-700 text-white p-1 rounded"
+          >
+            Back to simplex editor
+          </button>
+        </div>
+        <p className="text-2xl font-bold">Simplex</p>
+        <svg
+          viewBox={`${(xmin + xmax) / 2 - dimension / 2} ${(ymin + ymax) / 2 - dimension / 2} ${dimension} ${dimension}`}
+          width="300px" height="300px" xmlns="https://www.w3.org/2000/svg">
+          {simplicialComplexSVGElements}
+        </svg>
+      </div>
+      <div className="space-y-5">
+        <p>Z<sub>0</sub>: Dimension {z0.length}</p>
+        <div className="flex flex-wrap gap-5">
+          {z0.map((cycle, index) => (
+            <svg
+              viewBox={`${(xmin + xmax) / 2 - dimension / 2} ${(ymin + ymax) / 2 - dimension / 2} ${dimension} ${dimension}`}
+              width="200px" height="200px" className="shrink-0" xmlns="https://www.w3.org/2000/svg" key={index}>
+              <g fillOpacity="0.2" strokeOpacity="0.2">
+                {simplicialComplexSVGElements}
+              </g>
+              {cycle.map((vertex, index) => <circle key={index} cx={`${vertices[vertex[0]][0]}`} cy={`${vertices[vertex[0]][1]}`} r={`${5 * dimension / 300}`} />)}
+            </svg>
+          ))}
+        </div>
+        <p>B<sub>0</sub>: Dimension {b0.length}</p>
+        <div className="flex flex-wrap gap-5">
+          {b0.map((cycle, index) => (
+            <svg
+              viewBox={`${(xmin + xmax) / 2 - dimension / 2} ${(ymin + ymax) / 2 - dimension / 2} ${dimension} ${dimension}`}
+              width="200px" height="200px" className="shrink-0" xmlns="https://www.w3.org/2000/svg" key={index}>
+              <g fillOpacity="0.2" strokeOpacity="0.2">
+                {simplicialComplexSVGElements}
+              </g>
+              {cycle.map((vertex, index) => <circle key={index} cx={`${vertices[vertex[0]][0]}`} cy={`${vertices[vertex[0]][1]}`} r={`${5 * dimension / 300}`} />)}
+            </svg>
+          ))}
+        </div>
+        <p>β<sub>0</sub> = {z0.length} - {b0.length} = {z0.length - b0.length}</p>
+      </div>
+      <div className="space-y-5">
+        <p>Z<sub>1</sub>: Dimension {z1.length}</p>
+        <div className="flex flex-wrap gap-5">
+          {z1.map((cycle, index) => (
+            <svg
+              viewBox={`${(xmin + xmax) / 2 - dimension / 2} ${(ymin + ymax) / 2 - dimension / 2} ${dimension} ${dimension}`}
+              width="200px" height="200px" className="shrink-0" xmlns="https://www.w3.org/2000/svg" key={index}>
+              <g fillOpacity="0.5" strokeOpacity="0.2">
+                {simplicialComplexSVGElements}
+              </g>
+              {cycle.map((edge, index) => <line key={index} x1={`${vertices[edge[0]][0]}`} y1={`${vertices[edge[0]][1]}`} x2={`${vertices[edge[1]][0]}`} y2={`${vertices[edge[1]][1]}`} stroke="black" strokeWidth="2px" />)}
+            </svg>
+          ))}
+        </div>
+        <p>B<sub>1</sub>: Dimension {b1.length}</p>
+        <div className="flex flex-wrap gap-5">
+          {b1.map((cycle, index) => (
+            <svg
+              viewBox={`${(xmin + xmax) / 2 - dimension / 2} ${(ymin + ymax) / 2 - dimension / 2} ${dimension} ${dimension}`}
+              width="200px" height="200px" className="shrink-0" xmlns="https://www.w3.org/2000/svg" key={index}>
+              <g fillOpacity="0.5" strokeOpacity="0.2">
+                {simplicialComplexSVGElements}
+              </g>
+              {cycle.map((edge, index) => <line key={index} x1={`${vertices[edge[0]][0]}`} y1={`${vertices[edge[0]][1]}`} x2={`${vertices[edge[1]][0]}`} y2={`${vertices[edge[1]][1]}`} stroke="black" strokeWidth="2px" />)}
+            </svg>
+          ))}
+        </div>
+        <p>β<sub>1</sub> = {z1.length} - {b1.length} = {z1.length - b1.length}</p>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [simplexTree, setSimplexTree] = useState([] as SimplexTreeNode[]);
+  const [vertices, setVertices] = useState([] as [number, number][]);
+  const [view, setView] = useState<'editor' | 'details'>('editor');
+
+  if (view === 'editor') {
+    return <SimplexEditor
+      simplexTree={simplexTree}
+      setSimplexTree={setSimplexTree}
+      vertices={vertices}
+      setVertices={setVertices}
+      setView={setView} />;
+  } else {
+    return <SimplexDetails simplexTree={simplexTree} vertices={vertices} setView={setView} />;
+  }
 }
 
 export default App;
