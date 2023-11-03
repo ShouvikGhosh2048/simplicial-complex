@@ -1,7 +1,10 @@
+import { Chart, LinearScale, PointElement } from "chart.js";
 import { memo, useEffect, useRef, useState } from "react";
+import { Scatter } from "react-chartjs-2";
 import { FaTrash } from "react-icons/fa";
+import { HashRouter, Routes, Route, Link } from "react-router-dom";
 
-const VERTEX_RADIUS = 20;
+Chart.register(LinearScale, PointElement);
 
 interface SimplexTreeNode {
   label: number;
@@ -188,7 +191,7 @@ function resizeCanvas(canvas: HTMLCanvasElement) {
   const dpr = window.devicePixelRatio;
 
   const width = window.innerWidth - 300;
-  const height = window.innerHeight;
+  const height = window.innerHeight - 40;
 
   canvas.width = width * dpr;
   canvas.height = height * dpr;
@@ -211,6 +214,7 @@ interface SimplexEditorProps {
 }
 
 function SimplexEditor({ simplexTree, setSimplexTree, vertices, setVertices, setView }: SimplexEditorProps) {
+  const VERTEX_RADIUS = 20;
   const canvasRef = useRef(null as null | HTMLCanvasElement);
   const [drag, setDrag] = useState(
     null as null | {
@@ -235,7 +239,7 @@ function SimplexEditor({ simplexTree, setSimplexTree, vertices, setVertices, set
 
       const windowResize = () => {
         resizeCanvas(canvas);
-        setCanvasDimensions([window.innerWidth - 300, window.innerHeight]);
+        setCanvasDimensions([window.innerWidth - 300, window.innerHeight - 40]);
       };
 
       window.addEventListener("resize", windowResize);
@@ -347,14 +351,14 @@ function SimplexEditor({ simplexTree, setSimplexTree, vertices, setVertices, set
           e.clientY - rect.y - rect.height / 2,
         ] as [number, number];
 
-        const vertexIndex = vertices.findIndex(
+        const vertexIndex = vertices.length - 1 - [...vertices].reverse().findIndex(
           (vertex) =>
             Math.pow(vertex[0] - offsetFromCanvasCenter[0], 2) +
             Math.pow(vertex[1] - offsetFromCanvasCenter[1], 2) <
             Math.pow(VERTEX_RADIUS, 2)
         );
 
-        if (vertexIndex > -1) {
+        if (vertexIndex < vertices.length) {
           if (selectedVertices) {
             const indexInSelectedVertices = selectedVertices.findIndex(
               (vertex) => vertex === vertexIndex
@@ -477,8 +481,8 @@ function SimplexEditor({ simplexTree, setSimplexTree, vertices, setVertices, set
   });
 
   return (
-    <div className="flex min-h-screen">
-      <div className="grow h-screen overflow-auto bg-slate-200 p-2 space-y-3">
+    <div className="flex">
+      <div className="grow overflow-auto bg-slate-200 p-2 space-y-3">
         {vertices.length === 0 && <p>Click on the canvas to create vertices.</p>}
         {selectedVertices === null && vertices.length > 1 && (
           <div className="space-x-3">
@@ -780,7 +784,7 @@ function SimplexDetails({ simplexTree, vertices, setView }: SimplexDetailsProps)
   );
 }
 
-function App() {
+function Homology() {
   const [simplexTree, setSimplexTree] = useState([] as SimplexTreeNode[]);
   const [vertices, setVertices] = useState([] as [number, number][]);
   const [view, setView] = useState<'editor' | 'details'>('editor');
@@ -795,6 +799,688 @@ function App() {
   } else {
     return <SimplexDetails simplexTree={simplexTree} vertices={vertices} setView={setView} />;
   }
+}
+
+interface PersistentHomologyDetailsProps {
+  vertices: [number, number][];
+  setView: React.Dispatch<React.SetStateAction<'editor' | 'details'>>;
+}
+
+function PersistentHomologyDetails({ vertices, setView }: PersistentHomologyDetailsProps) {
+  const filtration = new Map<number, { edges: [number, number][], triangles: [number, number, number][] }>();
+
+  for (let i = 0; i < vertices.length; i++) {
+    for (let j = i + 1; j < vertices.length; j++) {
+      const distance = Math.sqrt(Math.pow(vertices[i][0] - vertices[j][0], 2) + Math.pow(vertices[i][1] - vertices[j][1], 2));
+
+      let filtrationLevel = filtration.get(distance);
+      if (filtrationLevel === undefined) {
+        filtrationLevel = { edges: [], triangles: [] };
+        filtration.set(distance, filtrationLevel);
+      }
+      filtrationLevel.edges.push([i, j]);
+    }
+  }
+
+  for (let i = 0; i < vertices.length; i++) {
+    for (let j = i + 1; j < vertices.length; j++) {
+      for (let k = j + 1; k < vertices.length; k++) {
+        const distance =
+          Math.max(
+            Math.sqrt(Math.pow(vertices[i][0] - vertices[j][0], 2) + Math.pow(vertices[i][1] - vertices[j][1], 2)),
+            Math.sqrt(Math.pow(vertices[j][0] - vertices[k][0], 2) + Math.pow(vertices[j][1] - vertices[k][1], 2)),
+            Math.sqrt(Math.pow(vertices[i][0] - vertices[k][0], 2) + Math.pow(vertices[i][1] - vertices[k][1], 2))
+          );
+
+        let filtrationLevel = filtration.get(distance);
+        if (filtrationLevel === undefined) {
+          filtrationLevel = { edges: [], triangles: [] };
+          filtration.set(distance, filtrationLevel);
+        }
+        filtrationLevel.triangles.push([i, j, k]);
+      }
+    }
+  }
+
+  // We consider the matrix with the columns representing edges and triangles,
+  // and the rows representing the vertices and edges and faces.
+  // (Since we want to calculate the first persistence diagram.)
+  const columns: { filtrationLevel: number, entries: Set<number> }[] = [];
+  const edgeToColumnIndex = new Map<string, number>();
+  [...filtration.keys()].sort((a, b) => a - b).forEach((filtrationLevel) => {
+    const filtrationSimplices = filtration.get(filtrationLevel)!;
+
+    filtrationSimplices.edges.forEach((edge) => {
+      const entries = new Set<number>();
+      entries.add(edge[0]);
+      entries.add(edge[1]);
+      columns.push({
+        filtrationLevel,
+        entries,
+      });
+      edgeToColumnIndex.set(JSON.stringify(edge), columns.length - 1);
+    });
+
+    filtrationSimplices.triangles.forEach((triangle) => {
+      const entries = new Set<number>();
+      // Add vertices.length for the initial vertex rows.
+      entries.add(vertices.length + edgeToColumnIndex.get(JSON.stringify([triangle[0], triangle[1]]))!);
+      entries.add(vertices.length + edgeToColumnIndex.get(JSON.stringify([triangle[1], triangle[2]]))!);
+      entries.add(vertices.length + edgeToColumnIndex.get(JSON.stringify([triangle[0], triangle[2]]))!);
+      columns.push({
+        filtrationLevel,
+        entries
+      });
+    });
+  });
+
+  const lastIndex = new Map<number, number>(); // Map from 'lastIndex' to column index.
+  columns.forEach((column, columnIndex) => {
+    for (; ;) {
+      let last = -1;
+      column.entries.forEach(simplexIndex => {
+        if (last < simplexIndex) {
+          last = simplexIndex;
+        }
+      });
+
+      if (last === -1) {
+        // Zero column
+        break;
+      }
+
+      const prevColumnIndex = lastIndex.get(last);
+      if (prevColumnIndex === undefined) {
+        lastIndex.set(last, columnIndex);
+        break;
+      }
+
+      const prevColumn = columns[prevColumnIndex];
+      prevColumn.entries.forEach(simplexIndex => {
+        if (column.entries.has(simplexIndex)) {
+          column.entries.delete(simplexIndex);
+        } else {
+          column.entries.add(simplexIndex);
+        }
+      });
+    }
+  });
+
+  const birthsAndDeaths: [number, number][] = [];
+  lastIndex.forEach((columnIndex, last) => {
+    if (last <= vertices.length) {
+      return;
+    }
+
+    const birthColumn = columns[last - vertices.length];
+    const deathColumn = columns[columnIndex];
+
+    birthsAndDeaths.push([birthColumn.filtrationLevel, deathColumn.filtrationLevel]);
+  });
+
+  return (
+    <div className="p-3 space-y-3">
+      <button
+        onClick={() => {
+          setView('editor');
+        }}
+        className="bg-slate-700 text-white p-1 rounded"
+      >
+        Back to editor
+      </button>
+      <p>Persistence diagram</p>
+      <div className="h-96 w-96">
+        <Scatter data={{
+          datasets: [{
+            label: 'Persistence diagram',
+            data: birthsAndDeaths.map(([birth, death]) => ({ x: birth, y: death })),
+            backgroundColor: 'red',
+          }]
+        }} options={{
+          scales: {
+            x: {
+              type: 'linear',
+              position: 'bottom',
+            }
+          }
+        }} />
+      </div>
+    </div>
+  );
+}
+
+interface PersistentHomologyEditorProps {
+  setView: React.Dispatch<React.SetStateAction<'editor' | 'details'>>;
+  vertices: [number, number][];
+  setVertices: React.Dispatch<React.SetStateAction<[number, number][]>>;
+}
+
+function PersistentHomologyEditor({ setView, vertices, setVertices }: PersistentHomologyEditorProps) {
+  const VERTEX_RADIUS = 10;
+  const [editor, setEditor] = useState<'shape' | 'vertex'>('vertex');
+  // Each rectangle is represented by a pair of diagonally opposite vertices.
+  const [rectangles, setRectangles] = useState<[[number, number], [number, number]][]>([]);
+  const canvasRef = useRef(null as null | HTMLCanvasElement);
+  const [drag, setDrag] = useState(
+    null as null | {
+      initialOffsetFromCanvasCenter: [number, number];
+      currentOffsetFromCanvasCenter: [number, number];
+      object: null | {
+        type: "vertex" | "shape";
+        index: number;
+        offsetFromCenter: [number, number];
+      } | {
+        type: "anchor";
+        shapeIndex: number;
+        anchorIndex: number;
+        offsetFromCenter: [number, number];
+      };
+    }
+  );
+  const [selectedObject, setSelectedObject] = useState<null | { type: "vertex" | "shape", index: number }>(null);
+
+  // Store canvas dimensions as state so that we rerender when the window resizes.
+  const [, setCanvasDimensions] = useState([0, 0] as [number, number]);
+
+  useEffect(() => {
+    if (canvasRef.current) {
+      const canvas = canvasRef.current;
+
+      resizeCanvas(canvas);
+
+      const windowResize = () => {
+        resizeCanvas(canvas);
+        setCanvasDimensions([window.innerWidth - 300, window.innerHeight - 40]);
+      };
+
+      window.addEventListener("resize", windowResize);
+      return () => {
+        window.removeEventListener("resize", windowResize);
+      };
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!canvasRef.current) {
+      return;
+    }
+
+    const canvas = canvasRef.current;
+
+    const draw = () => {
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        return;
+      }
+
+      const rect = canvas.getBoundingClientRect();
+
+      ctx.clearRect(0, 0, rect.width, rect.height);
+
+      if (editor === 'shape') {
+        rectangles.forEach((rectangle, index) => {
+          if (selectedObject !== null && selectedObject.type === "shape" && selectedObject.index === index) {
+            return;
+          }
+
+          ctx.fillStyle = "gray";
+          ctx.strokeStyle = "black";
+          ctx.fillRect(rect.width / 2 + Math.min(rectangle[0][0], rectangle[1][0]), rect.height / 2 + Math.min(rectangle[0][1], rectangle[1][1]), Math.max(rectangle[0][0], rectangle[1][0]) - Math.min(rectangle[0][0], rectangle[1][0]), Math.max(rectangle[0][1], rectangle[1][1]) - Math.min(rectangle[0][1], rectangle[1][1]));
+          ctx.strokeRect(rect.width / 2 + Math.min(rectangle[0][0], rectangle[1][0]), rect.height / 2 + Math.min(rectangle[0][1], rectangle[1][1]), Math.max(rectangle[0][0], rectangle[1][0]) - Math.min(rectangle[0][0], rectangle[1][0]), Math.max(rectangle[0][1], rectangle[1][1]) - Math.min(rectangle[0][1], rectangle[1][1]));
+        });
+
+        if (selectedObject !== null && selectedObject.type === "shape") {
+          const rectangle = rectangles[selectedObject.index];
+
+          ctx.fillStyle = "#2563eb";
+          ctx.strokeStyle = "black";
+          ctx.fillRect(rect.width / 2 + Math.min(rectangle[0][0], rectangle[1][0]), rect.height / 2 + Math.min(rectangle[0][1], rectangle[1][1]), Math.max(rectangle[0][0], rectangle[1][0]) - Math.min(rectangle[0][0], rectangle[1][0]), Math.max(rectangle[0][1], rectangle[1][1]) - Math.min(rectangle[0][1], rectangle[1][1]));
+          ctx.strokeRect(rect.width / 2 + Math.min(rectangle[0][0], rectangle[1][0]), rect.height / 2 + Math.min(rectangle[0][1], rectangle[1][1]), Math.max(rectangle[0][0], rectangle[1][0]) - Math.min(rectangle[0][0], rectangle[1][0]), Math.max(rectangle[0][1], rectangle[1][1]) - Math.min(rectangle[0][1], rectangle[1][1]));
+
+          ctx.fillStyle = "red";
+          ctx.beginPath();
+          ctx.arc(
+            rect.width / 2 + rectangle[0][0],
+            rect.height / 2 + rectangle[0][1],
+            10,
+            0,
+            2 * Math.PI
+          );
+          ctx.fill();
+
+          ctx.beginPath();
+          ctx.arc(
+            rect.width / 2 + rectangle[1][0],
+            rect.height / 2 + rectangle[1][1],
+            10,
+            0,
+            2 * Math.PI
+          );
+          ctx.fill();
+        }
+
+        if (drag && !drag.object) {
+          const rectangle = [drag.initialOffsetFromCanvasCenter, drag.currentOffsetFromCanvasCenter];
+          ctx.fillStyle = "rgba(150, 150, 150, 0.1)";
+          ctx.strokeStyle = "black";
+          ctx.fillRect(rect.width / 2 + Math.min(rectangle[0][0], rectangle[1][0]), rect.height / 2 + Math.min(rectangle[0][1], rectangle[1][1]), Math.max(rectangle[0][0], rectangle[1][0]) - Math.min(rectangle[0][0], rectangle[1][0]), Math.max(rectangle[0][1], rectangle[1][1]) - Math.min(rectangle[0][1], rectangle[1][1]));
+          ctx.strokeRect(rect.width / 2 + Math.min(rectangle[0][0], rectangle[1][0]), rect.height / 2 + Math.min(rectangle[0][1], rectangle[1][1]), Math.max(rectangle[0][0], rectangle[1][0]) - Math.min(rectangle[0][0], rectangle[1][0]), Math.max(rectangle[0][1], rectangle[1][1]) - Math.min(rectangle[0][1], rectangle[1][1]));
+        }
+      } else {
+        vertices.forEach((vertex, index) => {
+          if (selectedObject !== null && selectedObject.type === "vertex" && selectedObject.index === index) {
+            return;
+          }
+
+          ctx.fillStyle = "black";
+          ctx.beginPath();
+          ctx.arc(
+            rect.width / 2 + vertex[0],
+            rect.height / 2 + vertex[1],
+            VERTEX_RADIUS,
+            0,
+            2 * Math.PI
+          );
+          ctx.fill();
+        });
+
+        if (selectedObject !== null && selectedObject.type === "vertex") {
+          const vertex = vertices[selectedObject.index];
+          ctx.fillStyle = "#2563eb";
+          ctx.beginPath();
+          ctx.arc(
+            rect.width / 2 + vertex[0],
+            rect.height / 2 + vertex[1],
+            VERTEX_RADIUS,
+            0,
+            2 * Math.PI
+          );
+          ctx.fill();
+        }
+      }
+    };
+
+    const mouseDownCanvas = (e: MouseEvent) => {
+      if (e.button === 0) {
+        const rect = canvas.getBoundingClientRect();
+        const offsetFromCanvasCenter = [
+          e.clientX - rect.x - rect.width / 2,
+          e.clientY - rect.y - rect.height / 2,
+        ] as [number, number];
+
+        if (editor === 'vertex') {
+          const vertexIndex = vertices.length - 1 - [...vertices].reverse().findIndex(
+            (vertex) =>
+              Math.pow(vertex[0] - offsetFromCanvasCenter[0], 2) +
+              Math.pow(vertex[1] - offsetFromCanvasCenter[1], 2) <
+              Math.pow(VERTEX_RADIUS, 2)
+          );
+
+          if (vertexIndex < vertices.length) {
+            setDrag({
+              initialOffsetFromCanvasCenter: offsetFromCanvasCenter,
+              currentOffsetFromCanvasCenter: offsetFromCanvasCenter,
+              object: {
+                type: "vertex",
+                index: vertexIndex,
+                offsetFromCenter: [
+                  offsetFromCanvasCenter[0] - vertices[vertexIndex][0],
+                  offsetFromCanvasCenter[1] - vertices[vertexIndex][1],
+                ],
+              },
+            });
+            setSelectedObject({
+              type: "vertex",
+              index: vertexIndex,
+            });
+          } else {
+            setDrag({
+              initialOffsetFromCanvasCenter: offsetFromCanvasCenter,
+              currentOffsetFromCanvasCenter: offsetFromCanvasCenter,
+              object: null,
+            });
+            setSelectedObject(null);
+          }
+        }
+        else {
+          if (selectedObject && selectedObject.type === "shape") {
+            // Check anchors.
+            for (let i = 1; i > -1; i--) {
+              const anchor = rectangles[selectedObject.index][i];
+              if (Math.pow(anchor[0] - offsetFromCanvasCenter[0], 2) + Math.pow(anchor[1] - offsetFromCanvasCenter[1], 2) <= 100) {
+                setDrag({
+                  initialOffsetFromCanvasCenter: offsetFromCanvasCenter,
+                  currentOffsetFromCanvasCenter: offsetFromCanvasCenter,
+                  object: {
+                    type: "anchor",
+                    shapeIndex: selectedObject.index,
+                    anchorIndex: i,
+                    offsetFromCenter: [offsetFromCanvasCenter[0] - anchor[0], offsetFromCanvasCenter[1] - anchor[1]],
+                  }
+                });
+                return;
+              }
+            }
+          }
+
+          // TODO: Give preference to the currently selected rectangle.
+          const rectangleIndex = rectangles.length - 1 - [...rectangles].reverse().findIndex(
+            (rectangle) =>
+              Math.min(rectangle[0][0], rectangle[1][0]) <= offsetFromCanvasCenter[0]
+              && offsetFromCanvasCenter[0] <= Math.max(rectangle[0][0], rectangle[1][0])
+              && Math.min(rectangle[0][1], rectangle[1][1]) <= offsetFromCanvasCenter[1]
+              && offsetFromCanvasCenter[1] <= Math.max(rectangle[0][1], rectangle[1][1])
+          );
+
+          if (rectangleIndex < rectangles.length) {
+            setDrag({
+              initialOffsetFromCanvasCenter: offsetFromCanvasCenter,
+              currentOffsetFromCanvasCenter: offsetFromCanvasCenter,
+              object: {
+                type: "shape",
+                index: rectangleIndex,
+                offsetFromCenter: [
+                  offsetFromCanvasCenter[0] - (rectangles[rectangleIndex][0][0] + rectangles[rectangleIndex][1][0]) / 2,
+                  offsetFromCanvasCenter[1] - (rectangles[rectangleIndex][0][1] + rectangles[rectangleIndex][1][1]) / 2
+                ]
+              }
+            });
+            setSelectedObject({
+              type: "shape",
+              index: rectangleIndex,
+            });
+          } else {
+            setDrag({
+              initialOffsetFromCanvasCenter: offsetFromCanvasCenter,
+              currentOffsetFromCanvasCenter: offsetFromCanvasCenter,
+              object: null,
+            });
+            setSelectedObject(null);
+          }
+        }
+      }
+    };
+
+    const mouseMoveWindow = (e: MouseEvent) => {
+      if (e.button === 0) {
+        const rect = canvas.getBoundingClientRect();
+        const offsetFromCanvasCenter = [
+          e.clientX - rect.x - rect.width / 2,
+          e.clientY - rect.y - rect.height / 2,
+        ] as [number, number];
+
+        if (drag && drag.object) {
+          if (drag.object.type === "vertex") {
+            setVertices([
+              ...vertices.slice(0, drag.object.index),
+              [
+                offsetFromCanvasCenter[0] - drag.object.offsetFromCenter[0],
+                offsetFromCanvasCenter[1] - drag.object.offsetFromCenter[1],
+              ],
+              ...vertices.slice(drag.object.index + 1),
+            ]);
+          } else if (drag.object.type === "anchor") {
+            const { shapeIndex, anchorIndex, offsetFromCenter: offsetFromVertexCenter } = drag.object;
+            const newRectangle = [[...rectangles[shapeIndex][0]], [...rectangles[shapeIndex][1]]] as [[number, number], [number, number]];
+            newRectangle[anchorIndex] = [offsetFromCanvasCenter[0] - offsetFromVertexCenter[0], offsetFromCanvasCenter[1] - offsetFromVertexCenter[1]];
+            setRectangles([
+              ...rectangles.slice(0, drag.object.shapeIndex),
+              newRectangle,
+              ...rectangles.slice(drag.object.shapeIndex + 1),
+            ]);
+          } else {
+            const { index, offsetFromCenter } = drag.object;
+            const rectangle = rectangles[index];
+            const newRectangle = [
+              [
+                offsetFromCanvasCenter[0] - offsetFromCenter[0] + (rectangle[0][0] - rectangle[1][0]) / 2,
+                offsetFromCanvasCenter[1] - offsetFromCenter[1] + (rectangle[0][1] - rectangle[1][1]) / 2,
+              ],
+              [
+                offsetFromCanvasCenter[0] - offsetFromCenter[0] + (rectangle[1][0] - rectangle[0][0]) / 2,
+                offsetFromCanvasCenter[1] - offsetFromCenter[1] + (rectangle[1][1] - rectangle[0][1]) / 2,
+              ]
+            ] as [[number, number], [number, number]];
+
+            setRectangles([
+              ...rectangles.slice(0, index),
+              newRectangle,
+              ...rectangles.slice(index + 1),
+            ]);
+          }
+        }
+
+        if (drag) {
+          setDrag({
+            ...drag,
+            currentOffsetFromCanvasCenter: offsetFromCanvasCenter,
+          });
+        }
+      }
+    };
+
+    const mouseUpWindow = (e: MouseEvent) => {
+      if (e.button === 0) {
+        const rect = canvas.getBoundingClientRect();
+        const offsetFromCanvasCenter = [
+          e.clientX - rect.x - rect.width / 2,
+          e.clientY - rect.y - rect.height / 2,
+        ] as [number, number];
+
+        if (drag) {
+          if (drag.object) {
+            if (drag.object.type === "vertex") {
+              setVertices([
+                ...vertices.slice(0, drag.object.index),
+                [
+                  offsetFromCanvasCenter[0] - drag.object.offsetFromCenter[0],
+                  offsetFromCanvasCenter[1] - drag.object.offsetFromCenter[1],
+                ],
+                ...vertices.slice(drag.object.index + 1),
+              ]);
+            } else if (drag.object.type === "anchor") {
+              const { shapeIndex, anchorIndex, offsetFromCenter: offsetFromVertexCenter } = drag.object;
+              const newRectangle = [[...rectangles[shapeIndex][0]], [...rectangles[shapeIndex][1]]] as [[number, number], [number, number]];
+              newRectangle[anchorIndex] = [offsetFromCanvasCenter[0] - offsetFromVertexCenter[0], offsetFromCanvasCenter[1] - offsetFromVertexCenter[1]];
+              setRectangles([
+                ...rectangles.slice(0, drag.object.shapeIndex),
+                newRectangle,
+                ...rectangles.slice(drag.object.shapeIndex + 1),
+              ]);
+            } else {
+              const { index, offsetFromCenter } = drag.object;
+              const rectangle = rectangles[index];
+              const newRectangle = [
+                [
+                  offsetFromCanvasCenter[0] - offsetFromCenter[0] + (rectangle[0][0] - rectangle[1][0]) / 2,
+                  offsetFromCanvasCenter[1] - offsetFromCenter[1] + (rectangle[0][1] - rectangle[1][1]) / 2,
+                ],
+                [
+                  offsetFromCanvasCenter[0] - offsetFromCenter[0] + (rectangle[1][0] - rectangle[0][0]) / 2,
+                  offsetFromCanvasCenter[1] - offsetFromCenter[1] + (rectangle[1][1] - rectangle[0][1]) / 2,
+                ]
+              ] as [[number, number], [number, number]];
+
+              setRectangles([
+                ...rectangles.slice(0, index),
+                newRectangle,
+                ...rectangles.slice(index + 1),
+              ]);
+            }
+          } else {
+            if (editor === "vertex") {
+              if (
+                Math.pow(
+                  drag.initialOffsetFromCanvasCenter[0] -
+                  offsetFromCanvasCenter[0],
+                  2
+                ) +
+                Math.pow(
+                  drag.initialOffsetFromCanvasCenter[1] -
+                  offsetFromCanvasCenter[1],
+                  2
+                ) <=
+                25
+              ) {
+                setSelectedObject({ type: "vertex", index: vertices.length });
+                setVertices([...vertices, offsetFromCanvasCenter]);
+              }
+            } else {
+              if (
+                Math.pow(
+                  drag.initialOffsetFromCanvasCenter[0] -
+                  offsetFromCanvasCenter[0],
+                  2
+                ) +
+                Math.pow(
+                  drag.initialOffsetFromCanvasCenter[1] -
+                  offsetFromCanvasCenter[1],
+                  2
+                ) >=
+                25
+              ) {
+                setSelectedObject({ type: "shape", index: rectangles.length });
+                setRectangles([...rectangles, [drag.initialOffsetFromCanvasCenter, offsetFromCanvasCenter]]);
+              }
+            }
+          }
+        }
+
+        setDrag(null);
+      }
+    };
+
+    const windowKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Delete' && selectedObject !== null) {
+        if (selectedObject.type === 'shape') {
+          setRectangles([...rectangles.slice(0, selectedObject.index), ...rectangles.slice(selectedObject.index + 1)]);
+        } else {
+          setVertices([...vertices.slice(0, selectedObject.index), ...vertices.slice(selectedObject.index + 1)]);
+        }
+        setSelectedObject(null);
+      }
+    };
+
+    draw();
+
+    canvas.addEventListener("mousedown", mouseDownCanvas);
+    window.addEventListener("mousemove", mouseMoveWindow);
+    window.addEventListener("mouseup", mouseUpWindow);
+    window.addEventListener("keydown", windowKeyDown);
+    return () => {
+      canvas.removeEventListener("mousedown", mouseDownCanvas);
+      window.removeEventListener("mousemove", mouseMoveWindow);
+      window.removeEventListener("mouseup", mouseUpWindow);
+      window.removeEventListener("keydown", windowKeyDown);
+    };
+  });
+
+  return (
+    <div className="flex">
+      <div className="grow overflow-auto bg-slate-200 p-2 space-y-3">
+        <div className="flex gap-3">
+          <button
+            onClick={() => {
+              setEditor('shape');
+            }}
+            className={`${editor === 'shape' ? 'bg-slate-700' : 'bg-slate-500'} text-white p-1 rounded`}
+          >
+            Shape editor
+          </button>
+          <button
+            onClick={() => {
+              setEditor('vertex');
+            }}
+            className={`${editor === 'vertex' ? 'bg-slate-700' : 'bg-slate-500'} text-white p-1 rounded`}
+          >
+            Vertex editor
+          </button>
+        </div>
+        {editor === 'vertex' && vertices.length > 0 && (
+          <button
+            onClick={() => {
+              setView('details');
+            }}
+            className='bg-slate-700 text-white p-1 rounded'
+          >
+            View persistent homology
+          </button>
+        )}
+        {editor === 'shape' && rectangles.length > 0 && (<div>
+          <button
+            onClick={() => {
+              setDrag(null);
+              setSelectedObject(null);
+
+              let minX = Math.min(rectangles[0][0][0], rectangles[0][1][0]);
+              let minY = Math.min(rectangles[0][0][1], rectangles[0][1][1]);
+              let maxX = Math.max(rectangles[0][0][0], rectangles[0][1][0]);
+              let maxY = Math.max(rectangles[0][0][1], rectangles[0][1][1]);
+              rectangles.forEach(rectangle => {
+                minX = Math.min(minX, rectangle[0][0], rectangle[1][0]);
+                minY = Math.min(minY, rectangle[0][1], rectangle[1][1]);
+                maxX = Math.max(maxX, rectangle[0][0], rectangle[1][0]);
+                maxY = Math.max(maxY, rectangle[0][1], rectangle[1][1]);
+              });
+
+              const newVertices: [number, number][] = [];
+              const GRID_SIZE = 6;
+              for (let i = 0; i < GRID_SIZE; i++) {
+                for (let j = 0; j < GRID_SIZE; j++) {
+                  for (let _ = 0; _ < 100; _++) {
+                    const point = [minX + i * (maxX - minX) / GRID_SIZE + Math.random() * (maxX - minX) / GRID_SIZE, minY + j * (maxY - minY) / GRID_SIZE + Math.random() * (maxY - minY) / GRID_SIZE] as [number, number];
+                    const hasPoint = rectangles.some((rectangle) => (
+                      Math.min(rectangle[0][0], rectangle[1][0]) <= point[0]
+                      && point[0] <= Math.max(rectangle[0][0], rectangle[1][0])
+                      && Math.min(rectangle[0][1], rectangle[1][1]) <= point[1]
+                      && point[1] <= Math.max(rectangle[0][1], rectangle[1][1])
+                    ));
+                    if (hasPoint) {
+                      newVertices.push(point);
+                      break;
+                    }
+                  }
+                }
+              }
+              setVertices(newVertices);
+              setEditor('vertex');
+            }}
+            className={'bg-slate-700 text-white p-1 rounded'}
+          >
+            Sample random points
+          </button>
+        </div>)}
+        {vertices.length === 0 && <p>Click on the canvas to create vertices.</p>}
+      </div>
+      <div>
+        <canvas ref={canvasRef}></canvas>
+      </div>
+    </div>
+  );
+}
+
+function PersistentHomology() {
+  const [view, setView] = useState<'editor' | 'details'>('editor');
+  const [vertices, setVertices] = useState<[number, number][]>([]);
+
+
+  if (view === 'details') { return <PersistentHomologyDetails vertices={vertices} setView={setView} />; }
+  else { return <PersistentHomologyEditor vertices={vertices} setVertices={setVertices} setView={setView} /> }
+}
+
+function App() {
+  return (
+    <HashRouter>
+      <div className="h-10 p-2 flex gap-5 items-center bg-slate-900 text-white">
+        <Link to="">Homology</Link>
+        <Link to="/persistent">Persistent homology</Link>
+      </div>
+      <Routes>
+        <Route path="" element={<Homology />} />
+        <Route path="/persistent" element={<PersistentHomology />} />
+      </Routes>
+    </HashRouter>
+  );
 }
 
 export default App;
