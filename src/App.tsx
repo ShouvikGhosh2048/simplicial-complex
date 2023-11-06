@@ -4,6 +4,8 @@ import { Chart as ChartComponent } from "react-chartjs-2";
 import { FaTrash } from "react-icons/fa";
 import { HashRouter, Routes, Route, Link } from "react-router-dom";
 
+// https://stackoverflow.com/a/46165064
+// https://stackoverflow.com/a/67143648
 Chart.register(LinearScale, PointElement, LineElement, LineController, ScatterController);
 
 interface SimplexTreeNode {
@@ -812,19 +814,51 @@ interface PersistentHomologyDetailsProps {
 function PersistentHomologyDetails({ vertices, setView }: PersistentHomologyDetailsProps) {
   const [loading, setLoading] = useState(true);
   const [birthsAndDeaths, setBirthsAndDeaths] = useState<[number, number][]>([]);
+  const [persistenceImage, setPersistenceImage] = useState<number[][]>([]);
+  const persistenceImageRef = useRef<HTMLCanvasElement | null>(null);
+  const persistenceImageSquareSize = 10.0;
 
   useEffect(() => {
     const worker = new Worker(new URL('./persistentHomologyDetailsWorker.ts', import.meta.url));
-  
+
     worker.onmessage = (e) => {
       setLoading(false);
       setBirthsAndDeaths(e.data.birthsAndDeaths);
+      setPersistenceImage(e.data.persistenceImage);
     };
 
     worker.postMessage(vertices);
 
     return () => { worker.terminate(); }
   }, [vertices]);
+
+  useEffect(() => {
+    if (persistenceImageRef.current) {
+      const ctx = persistenceImageRef.current.getContext('2d');
+      if (!ctx) {
+        return;
+      }
+
+      ctx.clearRect(0, 0, persistenceImage[0].length * persistenceImageSquareSize, persistenceImage.length * persistenceImageSquareSize);
+      let maxValue = 0.0;
+      for (let i = 0; i < persistenceImage.length; i++) {
+        for (let j = 0; j < persistenceImage[0].length; j++) {
+          maxValue = Math.max(maxValue, persistenceImage[i][j]);
+        }
+      }
+      if (maxValue === 0.0) {
+        return;
+      }
+
+      for (let i = 0; i < persistenceImage.length; i++) {
+        for (let j = 0; j < persistenceImage[0].length; j++) {
+          const grayValue = 255 - Math.floor(255.999 * persistenceImage[i][j] / maxValue);
+          ctx.fillStyle = `rgb(${grayValue}, ${grayValue}, ${grayValue})`;
+          ctx.fillRect(j * persistenceImageSquareSize, i * persistenceImageSquareSize, persistenceImageSquareSize, persistenceImageSquareSize);
+        }
+      }
+    }
+  }, [persistenceImage]);
 
   if (loading) {
     return <p className="p-3">Loading...</p>;
@@ -845,32 +879,75 @@ function PersistentHomologyDetails({ vertices, setView }: PersistentHomologyDeta
       >
         Back to editor
       </button>
-      <p>Persistence diagram</p>
-      <div className="h-96 w-96">
-        <ChartComponent type='scatter' data={{
-          datasets: [{
-            type: 'scatter' as const,
-            label: 'Persistence diagram',
-            data: birthsAndDeaths.map(([birth, death]) => ({ x: birth, y: death })),
-            backgroundColor: 'red',
-          },
-          {
-            type: 'line' as const,
-            data: [{x: 0, y: 0}, { x: lineMax, y: lineMax }],
-            pointBackgroundColor: 'transparent',
-            pointBorderColor: 'transparent',
-            backgroundColor: 'black',
-            borderColor: 'black',
-          }]
-        }} options={{
-          scales: {
-            x: {
-              type: 'linear',
-              position: 'bottom',
+      <div className="flex gap-10 flex-wrap">
+        <div className="w-96">
+          <p>Persistence diagram</p>
+          <ChartComponent type='scatter' data={{
+            datasets: [{
+              type: 'scatter' as const,
+              label: 'Persistence diagram',
+              data: birthsAndDeaths.map(([birth, death]) => ({ x: birth, y: death })),
+              backgroundColor: 'red',
+            },
+            {
+              type: 'line' as const,
+              data: [{ x: 0, y: 0 }, { x: lineMax, y: lineMax }],
+              pointBackgroundColor: 'transparent',
+              pointBorderColor: 'transparent',
+              backgroundColor: 'black',
+              borderColor: 'black',
+            }]
+          }} options={{
+            scales: {
+              x: {
+                title: {
+                  text: 'Birth',
+                  display: true,
+                }
+              },
+              y: {
+                title: {
+                  text: 'Death',
+                  display: true,
+                }
+              }
             }
-          }
-        }} />
+          }} />
+        </div>
+        <div className="w-96">
+          <p>Birth and persistence</p>
+          <ChartComponent type='scatter' data={{
+            datasets: [{
+              type: 'scatter' as const,
+              label: 'Persistence diagram',
+              data: birthsAndDeaths.map(([birth, death]) => ({ x: birth, y: death - birth })),
+              backgroundColor: 'red',
+            }]
+          }} options={{
+            scales: {
+              x: {
+                min: 0,
+                max: 500,
+                title: {
+                  text: 'Birth',
+                  display: true,
+                }
+              },
+              y: {
+                min: 0,
+                max: 500,
+                title: {
+                  text: 'Persistence',
+                  display: true,
+                }
+              }
+            }
+          }} />
+        </div>
       </div>
+      <p>Persistence image</p>
+      <canvas className="border border-gray-500" width={persistenceImage[0].length * 10} height={persistenceImage.length * 10} ref={persistenceImageRef}>
+      </canvas>
     </div>
   );
 }
