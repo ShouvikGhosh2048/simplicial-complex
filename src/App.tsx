@@ -1,10 +1,10 @@
-import { Chart, LinearScale, PointElement } from "chart.js";
+import { LinearScale, PointElement, LineElement, Chart, LineController, ScatterController } from "chart.js";
 import { memo, useEffect, useRef, useState } from "react";
-import { Scatter } from "react-chartjs-2";
+import { Chart as ChartComponent } from "react-chartjs-2";
 import { FaTrash } from "react-icons/fa";
 import { HashRouter, Routes, Route, Link } from "react-router-dom";
 
-Chart.register(LinearScale, PointElement);
+Chart.register(LinearScale, PointElement, LineElement, LineController, ScatterController);
 
 interface SimplexTreeNode {
   label: number;
@@ -806,116 +806,33 @@ interface PersistentHomologyDetailsProps {
   setView: React.Dispatch<React.SetStateAction<'editor' | 'details'>>;
 }
 
+// https://stackoverflow.com/a/76041435
+// https://stackoverflow.com/a/74246113
+// https://vitejs.dev/guide/features.html#web-workers
 function PersistentHomologyDetails({ vertices, setView }: PersistentHomologyDetailsProps) {
-  const filtration = new Map<number, { edges: [number, number][], triangles: [number, number, number][] }>();
+  const [loading, setLoading] = useState(true);
+  const [birthsAndDeaths, setBirthsAndDeaths] = useState<[number, number][]>([]);
 
-  for (let i = 0; i < vertices.length; i++) {
-    for (let j = i + 1; j < vertices.length; j++) {
-      const distance = Math.sqrt(Math.pow(vertices[i][0] - vertices[j][0], 2) + Math.pow(vertices[i][1] - vertices[j][1], 2));
+  useEffect(() => {
+    const worker = new Worker(new URL('./persistentHomologyDetailsWorker.ts', import.meta.url));
+  
+    worker.onmessage = (e) => {
+      setLoading(false);
+      setBirthsAndDeaths(e.data.birthsAndDeaths);
+    };
 
-      let filtrationLevel = filtration.get(distance);
-      if (filtrationLevel === undefined) {
-        filtrationLevel = { edges: [], triangles: [] };
-        filtration.set(distance, filtrationLevel);
-      }
-      filtrationLevel.edges.push([i, j]);
-    }
+    worker.postMessage(vertices);
+
+    return () => { worker.terminate(); }
+  }, [vertices]);
+
+  if (loading) {
+    return <p className="p-3">Loading...</p>;
   }
 
-  for (let i = 0; i < vertices.length; i++) {
-    for (let j = i + 1; j < vertices.length; j++) {
-      for (let k = j + 1; k < vertices.length; k++) {
-        const distance =
-          Math.max(
-            Math.sqrt(Math.pow(vertices[i][0] - vertices[j][0], 2) + Math.pow(vertices[i][1] - vertices[j][1], 2)),
-            Math.sqrt(Math.pow(vertices[j][0] - vertices[k][0], 2) + Math.pow(vertices[j][1] - vertices[k][1], 2)),
-            Math.sqrt(Math.pow(vertices[i][0] - vertices[k][0], 2) + Math.pow(vertices[i][1] - vertices[k][1], 2))
-          );
-
-        let filtrationLevel = filtration.get(distance);
-        if (filtrationLevel === undefined) {
-          filtrationLevel = { edges: [], triangles: [] };
-          filtration.set(distance, filtrationLevel);
-        }
-        filtrationLevel.triangles.push([i, j, k]);
-      }
-    }
-  }
-
-  // We consider the matrix with the columns representing edges and triangles,
-  // and the rows representing the vertices and edges and faces.
-  // (Since we want to calculate the first persistence diagram.)
-  const columns: { filtrationLevel: number, entries: Set<number> }[] = [];
-  const edgeToColumnIndex = new Map<string, number>();
-  [...filtration.keys()].sort((a, b) => a - b).forEach((filtrationLevel) => {
-    const filtrationSimplices = filtration.get(filtrationLevel)!;
-
-    filtrationSimplices.edges.forEach((edge) => {
-      const entries = new Set<number>();
-      entries.add(edge[0]);
-      entries.add(edge[1]);
-      columns.push({
-        filtrationLevel,
-        entries,
-      });
-      edgeToColumnIndex.set(JSON.stringify(edge), columns.length - 1);
-    });
-
-    filtrationSimplices.triangles.forEach((triangle) => {
-      const entries = new Set<number>();
-      // Add vertices.length for the initial vertex rows.
-      entries.add(vertices.length + edgeToColumnIndex.get(JSON.stringify([triangle[0], triangle[1]]))!);
-      entries.add(vertices.length + edgeToColumnIndex.get(JSON.stringify([triangle[1], triangle[2]]))!);
-      entries.add(vertices.length + edgeToColumnIndex.get(JSON.stringify([triangle[0], triangle[2]]))!);
-      columns.push({
-        filtrationLevel,
-        entries
-      });
-    });
-  });
-
-  const lastIndex = new Map<number, number>(); // Map from 'lastIndex' to column index.
-  columns.forEach((column, columnIndex) => {
-    for (; ;) {
-      let last = -1;
-      column.entries.forEach(simplexIndex => {
-        if (last < simplexIndex) {
-          last = simplexIndex;
-        }
-      });
-
-      if (last === -1) {
-        // Zero column
-        break;
-      }
-
-      const prevColumnIndex = lastIndex.get(last);
-      if (prevColumnIndex === undefined) {
-        lastIndex.set(last, columnIndex);
-        break;
-      }
-
-      const prevColumn = columns[prevColumnIndex];
-      prevColumn.entries.forEach(simplexIndex => {
-        if (column.entries.has(simplexIndex)) {
-          column.entries.delete(simplexIndex);
-        } else {
-          column.entries.add(simplexIndex);
-        }
-      });
-    }
-  });
-
-  const birthsAndDeaths: [number, number][] = [];
-  lastIndex.forEach((columnIndex, last) => {
-    if (last <= vertices.length) {
-      return;
-    }
-
-    const birthColumn = columns[last - vertices.length];
-    const deathColumn = columns[columnIndex];
-
-    birthsAndDeaths.push([birthColumn.filtrationLevel, deathColumn.filtrationLevel]);
+  let lineMax = 10.0;
+  birthsAndDeaths.forEach(([birth]) => {
+    lineMax = Math.max(lineMax, birth + 10.0);
   });
 
   return (
@@ -930,11 +847,20 @@ function PersistentHomologyDetails({ vertices, setView }: PersistentHomologyDeta
       </button>
       <p>Persistence diagram</p>
       <div className="h-96 w-96">
-        <Scatter data={{
+        <ChartComponent type='scatter' data={{
           datasets: [{
+            type: 'scatter' as const,
             label: 'Persistence diagram',
             data: birthsAndDeaths.map(([birth, death]) => ({ x: birth, y: death })),
             backgroundColor: 'red',
+          },
+          {
+            type: 'line' as const,
+            data: [{x: 0, y: 0}, { x: lineMax, y: lineMax }],
+            pointBackgroundColor: 'transparent',
+            pointBorderColor: 'transparent',
+            backgroundColor: 'black',
+            borderColor: 'black',
           }]
         }} options={{
           scales: {
@@ -1424,21 +1350,18 @@ function PersistentHomologyEditor({ setView, vertices, setVertices }: Persistent
               });
 
               const newVertices: [number, number][] = [];
-              const GRID_SIZE = 6;
-              for (let i = 0; i < GRID_SIZE; i++) {
-                for (let j = 0; j < GRID_SIZE; j++) {
-                  for (let _ = 0; _ < 100; _++) {
-                    const point = [minX + i * (maxX - minX) / GRID_SIZE + Math.random() * (maxX - minX) / GRID_SIZE, minY + j * (maxY - minY) / GRID_SIZE + Math.random() * (maxY - minY) / GRID_SIZE] as [number, number];
-                    const hasPoint = rectangles.some((rectangle) => (
-                      Math.min(rectangle[0][0], rectangle[1][0]) <= point[0]
-                      && point[0] <= Math.max(rectangle[0][0], rectangle[1][0])
-                      && Math.min(rectangle[0][1], rectangle[1][1]) <= point[1]
-                      && point[1] <= Math.max(rectangle[0][1], rectangle[1][1])
-                    ));
-                    if (hasPoint) {
-                      newVertices.push(point);
-                      break;
-                    }
+              for (let _ = 0; _ < 10000; _++) {
+                const point = [minX + Math.random() * (maxX - minX), minY + Math.random() * (maxY - minY)] as [number, number];
+                const hasPoint = rectangles.some((rectangle) => (
+                  Math.min(rectangle[0][0], rectangle[1][0]) <= point[0]
+                  && point[0] <= Math.max(rectangle[0][0], rectangle[1][0])
+                  && Math.min(rectangle[0][1], rectangle[1][1]) <= point[1]
+                  && point[1] <= Math.max(rectangle[0][1], rectangle[1][1])
+                ));
+                if (hasPoint) {
+                  newVertices.push(point);
+                  if (newVertices.length >= 100) {
+                    break;
                   }
                 }
               }
