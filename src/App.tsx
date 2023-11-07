@@ -1,6 +1,6 @@
 import { LinearScale, PointElement, LineElement, Chart, LineController, ScatterController } from "chart.js";
 import { memo, useEffect, useRef, useState } from "react";
-import { Chart as ChartComponent } from "react-chartjs-2";
+import { Chart as ChartComponent, getElementAtEvent } from "react-chartjs-2";
 import { FaTrash } from "react-icons/fa";
 import { HashRouter, Routes, Route, Link } from "react-router-dom";
 
@@ -813,8 +813,14 @@ interface PersistentHomologyDetailsProps {
 // https://vitejs.dev/guide/features.html#web-workers
 function PersistentHomologyDetails({ vertices, setView }: PersistentHomologyDetailsProps) {
   const [loading, setLoading] = useState(true);
-  const [birthsAndDeaths, setBirthsAndDeaths] = useState<[number, number][]>([]);
+  const [birthsAndDeaths, setBirthsAndDeaths] = useState<{
+    filtrationLevels: [number, number],
+    birthEdges: [number, number][],
+    deathTriangles: [number, number, number][],
+  }[]>([]);
+  const [currentBirthAndDeathIndex, setCurrentBirthAndDeathIndex] = useState<number | null>(null);
   const [persistenceImage, setPersistenceImage] = useState<number[][]>([]);
+  const persistenceDiagramRef = useRef(null);
   const persistenceImageRef = useRef<HTMLCanvasElement | null>(null);
   const persistenceImageSquareSize = 10.0;
 
@@ -865,9 +871,21 @@ function PersistentHomologyDetails({ vertices, setView }: PersistentHomologyDeta
   }
 
   let lineMax = 10.0;
-  birthsAndDeaths.forEach(([birth]) => {
+  birthsAndDeaths.forEach(({ filtrationLevels: [birth] }) => {
     lineMax = Math.max(lineMax, birth + 10.0);
   });
+
+  let xMin = vertices[0][0];
+  let xMax = vertices[0][0];
+  let yMin = vertices[0][1]
+  let yMax = vertices[0][1];
+  vertices.forEach(vertex => {
+    xMin = Math.min(vertex[0], xMin);
+    xMax = Math.max(vertex[0], xMax);
+    yMin = Math.min(vertex[1], yMin);
+    yMax = Math.max(vertex[1], yMax);
+  });
+  const dimension = Math.max(xMax - xMin, yMax - yMin) + 20.0;
 
   return (
     <div className="p-3 space-y-3">
@@ -879,14 +897,14 @@ function PersistentHomologyDetails({ vertices, setView }: PersistentHomologyDeta
       >
         Back to editor
       </button>
-      <div className="flex gap-10 flex-wrap">
+      <div className="flex gap-10 flex-wrap h-80 items-center">
         <div className="w-96">
           <p>Persistence diagram</p>
-          <ChartComponent type='scatter' data={{
+          <ChartComponent ref={persistenceDiagramRef} type='scatter' data={{
             datasets: [{
               type: 'scatter' as const,
               label: 'Persistence diagram',
-              data: birthsAndDeaths.map(([birth, death]) => ({ x: birth, y: death })),
+              data: birthsAndDeaths.map(({ filtrationLevels: [birth, death] }) => ({ x: birth, y: death })),
               backgroundColor: 'red',
             },
             {
@@ -911,16 +929,37 @@ function PersistentHomologyDetails({ vertices, setView }: PersistentHomologyDeta
                   display: true,
                 }
               }
+            },
+          }} 
+          onClick={(e) => {
+            if (!persistenceDiagramRef.current) {
+              return;
             }
-          }} />
+
+            const element = getElementAtEvent(persistenceDiagramRef.current, e);
+            if (element.length > 0) {
+              setCurrentBirthAndDeathIndex(element[0].index);
+            }
+          }}/>
         </div>
-        <div className="w-96">
+        {<svg
+          width="300"
+          height="300"
+          viewBox={`${(xMax + xMin - dimension) / 2} ${(yMax + yMin - dimension) / 2} ${dimension} ${dimension}`}
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          {currentBirthAndDeathIndex !== null && birthsAndDeaths[currentBirthAndDeathIndex].birthEdges.map((edge, index) => <line key={index} x1={`${vertices[edge[0]][0]}`} y1={`${vertices[edge[0]][1]}`} x2={`${vertices[edge[1]][0]}`} y2={`${vertices[edge[1]][1]}`} stroke="black" strokeWidth="3"/>)}
+          {vertices.map((vertex, index) => <circle key={index} cx={`${vertex[0]}`} cy={`${vertex[1]}`} r = "5"/>)}
+        </svg>}
+      </div>
+      <div className="flex gap-10 flex-wrap">
+      <div className="w-96">
           <p>Birth and persistence</p>
           <ChartComponent type='scatter' data={{
             datasets: [{
               type: 'scatter' as const,
               label: 'Persistence diagram',
-              data: birthsAndDeaths.map(([birth, death]) => ({ x: birth, y: death - birth })),
+              data: birthsAndDeaths.map(({ filtrationLevels: [birth, death] }) => ({ x: birth, y: death - birth })),
               backgroundColor: 'red',
             }]
           }} options={{
@@ -943,11 +982,13 @@ function PersistentHomologyDetails({ vertices, setView }: PersistentHomologyDeta
               }
             }
           }} />
-        </div>
       </div>
-      <p>Persistence image</p>
-      <canvas className="border border-gray-500" width={persistenceImage[0].length * 10} height={persistenceImage.length * 10} ref={persistenceImageRef}>
-      </canvas>
+      <div>
+        <p>Persistence image</p>
+        <canvas className="border border-gray-500" width={persistenceImage[0].length * 10} height={persistenceImage.length * 10} ref={persistenceImageRef}>
+        </canvas>
+      </div>
+      </div>
     </div>
   );
 }

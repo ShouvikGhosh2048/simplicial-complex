@@ -53,42 +53,48 @@ onmessage = (e) => {
   // We consider the matrix with the columns representing edges and triangles,
   // and the rows representing the vertices and edges and faces.
   // (Since we want to calculate the first persistence diagram.)
-  const columns: { filtrationLevel: number; entries: Set<number> }[] = [];
+  const columns: {
+    filtrationLevel: number;
+    boundary: Set<number>;
+    simplices: Set<number>;
+  }[] = [];
   const edgeToColumnIndex = new Map<string, number>();
+  const simplices: ([number, number]|[number, number, number])[] = [];
   [...filtration.keys()]
     .sort((a, b) => a - b)
     .forEach((filtrationLevel) => {
       const filtrationSimplices = filtration.get(filtrationLevel)!;
 
       filtrationSimplices.edges.forEach((edge) => {
-        const entries = new Set<number>();
-        entries.add(edge[0]);
-        entries.add(edge[1]);
+        edgeToColumnIndex.set(JSON.stringify(edge), columns.length);
+        simplices.push(edge);
         columns.push({
           filtrationLevel,
-          entries,
+          boundary: new Set(edge),
+          simplices: new Set([columns.length]),
         });
-        edgeToColumnIndex.set(JSON.stringify(edge), columns.length - 1);
       });
 
       filtrationSimplices.triangles.forEach((triangle) => {
-        const entries = new Set<number>();
+        simplices.push(triangle);
         // Add vertices.length for the initial vertex rows.
-        entries.add(
-          vertices.length +
-            edgeToColumnIndex.get(JSON.stringify([triangle[0], triangle[1]]))!
-        );
-        entries.add(
-          vertices.length +
-            edgeToColumnIndex.get(JSON.stringify([triangle[1], triangle[2]]))!
-        );
-        entries.add(
-          vertices.length +
-            edgeToColumnIndex.get(JSON.stringify([triangle[0], triangle[2]]))!
-        );
         columns.push({
           filtrationLevel,
-          entries,
+          boundary: new Set([
+            vertices.length +
+              edgeToColumnIndex.get(
+                JSON.stringify([triangle[0], triangle[1]])
+              )!,
+            vertices.length +
+              edgeToColumnIndex.get(
+                JSON.stringify([triangle[1], triangle[2]])
+              )!,
+            vertices.length +
+              edgeToColumnIndex.get(
+                JSON.stringify([triangle[0], triangle[2]])
+              )!,
+          ]),
+          simplices: new Set([columns.length]),
         });
       });
     });
@@ -97,7 +103,7 @@ onmessage = (e) => {
   columns.forEach((column, columnIndex) => {
     for (;;) {
       let last = -1;
-      column.entries.forEach((simplexIndex) => {
+      column.boundary.forEach((simplexIndex) => {
         if (last < simplexIndex) {
           last = simplexIndex;
         }
@@ -115,17 +121,28 @@ onmessage = (e) => {
       }
 
       const prevColumn = columns[prevColumnIndex];
-      prevColumn.entries.forEach((simplexIndex) => {
-        if (column.entries.has(simplexIndex)) {
-          column.entries.delete(simplexIndex);
+      prevColumn.boundary.forEach((simplexIndex) => {
+        if (column.boundary.has(simplexIndex)) {
+          column.boundary.delete(simplexIndex);
         } else {
-          column.entries.add(simplexIndex);
+          column.boundary.add(simplexIndex);
+        }
+      });
+      prevColumn.simplices.forEach((simplexIndex) => {
+        if (column.simplices.has(simplexIndex)) {
+          column.simplices.delete(simplexIndex);
+        } else {
+          column.simplices.add(simplexIndex);
         }
       });
     }
   });
 
-  const birthsAndDeaths: [number, number][] = [];
+  const birthsAndDeaths: {
+    filtrationLevels: [number, number],
+    birthEdges: [number, number][],
+    deathTriangles: [number, number, number][],
+  }[] = [];
   let maxBirth = 0.0;
   let maxPersistence = 0.0;
   lastIndex.forEach((columnIndex, last) => {
@@ -136,11 +153,33 @@ onmessage = (e) => {
     const birthColumn = columns[last - vertices.length];
     const deathColumn = columns[columnIndex];
 
+    const birthEdges: [number, number][] = [];
+    deathColumn.boundary.forEach((simplexIndex) => {
+      const edge = simplices[simplexIndex - vertices.length];
+      if (edge.length != 2) {
+        throw new Error('Expected edge, got triangle.');
+      }
+      birthEdges.push(edge);
+    });
+
+    const deathTriangles: [number, number, number][] = [];
+    deathColumn.simplices.forEach((simplexIndex) => {
+      const triangle = simplices[simplexIndex];
+      if (triangle.length != 3) {
+        throw new Error('Expected triangle, got edge.');
+      }
+      deathTriangles.push(triangle);
+    });
+
     if (birthColumn.filtrationLevel !== deathColumn.filtrationLevel) {
-      birthsAndDeaths.push([
-        birthColumn.filtrationLevel,
-        deathColumn.filtrationLevel,
-      ]);
+      birthsAndDeaths.push({
+        filtrationLevels: [
+          birthColumn.filtrationLevel,
+          deathColumn.filtrationLevel,
+        ],
+        birthEdges,
+        deathTriangles,
+      });
       maxBirth = Math.max(maxBirth, birthColumn.filtrationLevel);
       maxPersistence = Math.max(
         maxPersistence,
@@ -170,7 +209,7 @@ onmessage = (e) => {
             yMin + (l + 0.5) * integralGridSquareSize,
           ];
           let functionValueAtCenter = 0.0;
-          birthsAndDeaths.forEach(([birth, death]) => {
+          birthsAndDeaths.forEach(({ filtrationLevels: [birth, death] }) => {
             const point = [birth, death - birth];
             const weight = point[1] / maxPersistence;
             functionValueAtCenter +=
