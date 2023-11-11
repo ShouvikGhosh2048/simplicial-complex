@@ -822,7 +822,7 @@ function PersistentHomologyDetails({ vertices, setView }: PersistentHomologyDeta
   const [persistenceImage, setPersistenceImage] = useState<number[][]>([]);
   const persistenceDiagramRef = useRef(null);
   const persistenceImageRef = useRef<HTMLCanvasElement | null>(null);
-  const persistenceImageSquareSize = 10.0;
+  const persistenceImageSquareSize = 6.0;
 
   useEffect(() => {
     const worker = new Worker(new URL('./persistentHomologyDetailsWorker.ts', import.meta.url));
@@ -893,11 +893,11 @@ function PersistentHomologyDetails({ vertices, setView }: PersistentHomologyDeta
         onClick={() => {
           setView('editor');
         }}
-        className="bg-slate-700 text-white p-1 rounded"
+        className="bg-sky-100 p-1 rounded"
       >
         Back to editor
       </button>
-      <div className="flex gap-10 flex-wrap h-80 items-center">
+      <div className="flex gap-10 flex-wrap h-80 items-center border-t p-2">
         <div className="w-96">
           <p>Persistence diagram</p>
           <ChartComponent ref={persistenceDiagramRef} type='scatter' data={{
@@ -930,17 +930,17 @@ function PersistentHomologyDetails({ vertices, setView }: PersistentHomologyDeta
                 }
               }
             },
-          }} 
-          onClick={(e) => {
-            if (!persistenceDiagramRef.current) {
-              return;
-            }
+          }}
+            onClick={(e) => {
+              if (!persistenceDiagramRef.current) {
+                return;
+              }
 
-            const element = getElementAtEvent(persistenceDiagramRef.current, e);
-            if (element.length > 0) {
-              setCurrentBirthAndDeathIndex(element[0].index);
-            }
-          }}/>
+              const element = getElementAtEvent(persistenceDiagramRef.current, e);
+              if (element.length > 0) {
+                setCurrentBirthAndDeathIndex(element[0].index);
+              }
+            }} />
         </div>
         {<svg
           width="300"
@@ -948,12 +948,12 @@ function PersistentHomologyDetails({ vertices, setView }: PersistentHomologyDeta
           viewBox={`${(xMax + xMin - dimension) / 2} ${(yMax + yMin - dimension) / 2} ${dimension} ${dimension}`}
           xmlns="http://www.w3.org/2000/svg"
         >
-          {currentBirthAndDeathIndex !== null && birthsAndDeaths[currentBirthAndDeathIndex].birthEdges.map((edge, index) => <line key={index} x1={`${vertices[edge[0]][0]}`} y1={`${vertices[edge[0]][1]}`} x2={`${vertices[edge[1]][0]}`} y2={`${vertices[edge[1]][1]}`} stroke="black" strokeWidth="3"/>)}
-          {vertices.map((vertex, index) => <circle key={index} cx={`${vertex[0]}`} cy={`${vertex[1]}`} r = "5"/>)}
+          {currentBirthAndDeathIndex !== null && birthsAndDeaths[currentBirthAndDeathIndex].birthEdges.map((edge, index) => <line key={index} x1={`${vertices[edge[0]][0]}`} y1={`${vertices[edge[0]][1]}`} x2={`${vertices[edge[1]][0]}`} y2={`${vertices[edge[1]][1]}`} stroke="black" strokeWidth="3" />)}
+          {vertices.map((vertex, index) => <circle key={index} cx={`${vertex[0]}`} cy={`${vertex[1]}`} r="5" />)}
         </svg>}
       </div>
-      <div className="flex gap-10 flex-wrap">
-      <div className="w-96">
+      <div className="flex gap-10 flex-wrap border-t p-2">
+        <div className="w-96">
           <p>Birth and persistence</p>
           <ChartComponent type='scatter' data={{
             datasets: [{
@@ -982,12 +982,12 @@ function PersistentHomologyDetails({ vertices, setView }: PersistentHomologyDeta
               }
             }
           }} />
-      </div>
-      <div>
-        <p>Persistence image</p>
-        <canvas className="border border-gray-500" width={persistenceImage[0].length * 10} height={persistenceImage.length * 10} ref={persistenceImageRef}>
-        </canvas>
-      </div>
+        </div>
+        <div>
+          <p>Persistence image</p>
+          <canvas className="border border-gray-500" width={persistenceImage[0].length * persistenceImageSquareSize} height={persistenceImage.length * persistenceImageSquareSize} ref={persistenceImageRef}>
+          </canvas>
+        </div>
       </div>
     </div>
   );
@@ -997,13 +997,13 @@ interface PersistentHomologyEditorProps {
   setView: React.Dispatch<React.SetStateAction<'editor' | 'details'>>;
   vertices: [number, number][];
   setVertices: React.Dispatch<React.SetStateAction<[number, number][]>>;
+  rectangles: [[number, number], [number, number]][];
+  setRectangles: React.Dispatch<React.SetStateAction<[[number, number], [number, number]][]>>;
 }
 
-function PersistentHomologyEditor({ setView, vertices, setVertices }: PersistentHomologyEditorProps) {
+function PersistentHomologyEditor({ setView, vertices, setVertices, rectangles, setRectangles }: PersistentHomologyEditorProps) {
   const VERTEX_RADIUS = 10;
   const [editor, setEditor] = useState<'shape' | 'vertex'>('vertex');
-  // Each rectangle is represented by a pair of diagonally opposite vertices.
-  const [rectangles, setRectangles] = useState<[[number, number], [number, number]][]>([]);
   const canvasRef = useRef(null as null | HTMLCanvasElement);
   const [drag, setDrag] = useState(
     null as null | {
@@ -1067,21 +1067,19 @@ function PersistentHomologyEditor({ setView, vertices, setVertices }: Persistent
             return;
           }
 
-          ctx.fillStyle = "gray";
-          ctx.strokeStyle = "black";
+          ctx.fillStyle = "#111827";
           ctx.fillRect(rect.width / 2 + Math.min(rectangle[0][0], rectangle[1][0]), rect.height / 2 + Math.min(rectangle[0][1], rectangle[1][1]), Math.max(rectangle[0][0], rectangle[1][0]) - Math.min(rectangle[0][0], rectangle[1][0]), Math.max(rectangle[0][1], rectangle[1][1]) - Math.min(rectangle[0][1], rectangle[1][1]));
-          ctx.strokeRect(rect.width / 2 + Math.min(rectangle[0][0], rectangle[1][0]), rect.height / 2 + Math.min(rectangle[0][1], rectangle[1][1]), Math.max(rectangle[0][0], rectangle[1][0]) - Math.min(rectangle[0][0], rectangle[1][0]), Math.max(rectangle[0][1], rectangle[1][1]) - Math.min(rectangle[0][1], rectangle[1][1]));
         });
 
         if (selectedObject !== null && selectedObject.type === "shape") {
           const rectangle = rectangles[selectedObject.index];
 
-          ctx.fillStyle = "#2563eb";
+          ctx.fillStyle = "#71717a";
           ctx.strokeStyle = "black";
           ctx.fillRect(rect.width / 2 + Math.min(rectangle[0][0], rectangle[1][0]), rect.height / 2 + Math.min(rectangle[0][1], rectangle[1][1]), Math.max(rectangle[0][0], rectangle[1][0]) - Math.min(rectangle[0][0], rectangle[1][0]), Math.max(rectangle[0][1], rectangle[1][1]) - Math.min(rectangle[0][1], rectangle[1][1]));
           ctx.strokeRect(rect.width / 2 + Math.min(rectangle[0][0], rectangle[1][0]), rect.height / 2 + Math.min(rectangle[0][1], rectangle[1][1]), Math.max(rectangle[0][0], rectangle[1][0]) - Math.min(rectangle[0][0], rectangle[1][0]), Math.max(rectangle[0][1], rectangle[1][1]) - Math.min(rectangle[0][1], rectangle[1][1]));
 
-          ctx.fillStyle = "red";
+          ctx.fillStyle = "#ef4444";
           ctx.beginPath();
           ctx.arc(
             rect.width / 2 + rectangle[0][0],
@@ -1130,7 +1128,7 @@ function PersistentHomologyEditor({ setView, vertices, setVertices }: Persistent
 
         if (selectedObject !== null && selectedObject.type === "vertex") {
           const vertex = vertices[selectedObject.index];
-          ctx.fillStyle = "#2563eb";
+          ctx.fillStyle = "#71717a";
           ctx.beginPath();
           ctx.arc(
             rect.width / 2 + vertex[0],
@@ -1145,13 +1143,13 @@ function PersistentHomologyEditor({ setView, vertices, setVertices }: Persistent
     };
 
     const mouseDownCanvas = (e: MouseEvent) => {
-      if (e.button === 0) {
-        const rect = canvas.getBoundingClientRect();
-        const offsetFromCanvasCenter = [
-          e.clientX - rect.x - rect.width / 2,
-          e.clientY - rect.y - rect.height / 2,
-        ] as [number, number];
+      const rect = canvas.getBoundingClientRect();
+      const offsetFromCanvasCenter = [
+        e.clientX - rect.x - rect.width / 2,
+        e.clientY - rect.y - rect.height / 2,
+      ] as [number, number];
 
+      if (e.button === 0) {
         if (editor === 'vertex') {
           const vertexIndex = vertices.length - 1 - [...vertices].reverse().findIndex(
             (vertex) =>
@@ -1234,83 +1232,84 @@ function PersistentHomologyEditor({ setView, vertices, setVertices }: Persistent
               index: rectangleIndex,
             });
           } else {
-            setDrag({
-              initialOffsetFromCanvasCenter: offsetFromCanvasCenter,
-              currentOffsetFromCanvasCenter: offsetFromCanvasCenter,
-              object: null,
-            });
+            setDrag(null);
             setSelectedObject(null);
           }
         }
+      } else if (e.button === 2 && editor === 'shape') {
+        setDrag({
+          initialOffsetFromCanvasCenter: offsetFromCanvasCenter,
+          currentOffsetFromCanvasCenter: offsetFromCanvasCenter,
+          object: null,
+        });
+        setSelectedObject(null);
       }
     };
 
     const mouseMoveWindow = (e: MouseEvent) => {
-      if (e.button === 0) {
-        const rect = canvas.getBoundingClientRect();
-        const offsetFromCanvasCenter = [
-          e.clientX - rect.x - rect.width / 2,
-          e.clientY - rect.y - rect.height / 2,
-        ] as [number, number];
+      const rect = canvas.getBoundingClientRect();
+      const offsetFromCanvasCenter = [
+        e.clientX - rect.x - rect.width / 2,
+        e.clientY - rect.y - rect.height / 2,
+      ] as [number, number];
 
-        if (drag && drag.object) {
-          if (drag.object.type === "vertex") {
-            setVertices([
-              ...vertices.slice(0, drag.object.index),
-              [
-                offsetFromCanvasCenter[0] - drag.object.offsetFromCenter[0],
-                offsetFromCanvasCenter[1] - drag.object.offsetFromCenter[1],
-              ],
-              ...vertices.slice(drag.object.index + 1),
-            ]);
-          } else if (drag.object.type === "anchor") {
-            const { shapeIndex, anchorIndex, offsetFromCenter: offsetFromVertexCenter } = drag.object;
-            const newRectangle = [[...rectangles[shapeIndex][0]], [...rectangles[shapeIndex][1]]] as [[number, number], [number, number]];
-            newRectangle[anchorIndex] = [offsetFromCanvasCenter[0] - offsetFromVertexCenter[0], offsetFromCanvasCenter[1] - offsetFromVertexCenter[1]];
-            setRectangles([
-              ...rectangles.slice(0, drag.object.shapeIndex),
-              newRectangle,
-              ...rectangles.slice(drag.object.shapeIndex + 1),
-            ]);
-          } else {
-            const { index, offsetFromCenter } = drag.object;
-            const rectangle = rectangles[index];
-            const newRectangle = [
-              [
-                offsetFromCanvasCenter[0] - offsetFromCenter[0] + (rectangle[0][0] - rectangle[1][0]) / 2,
-                offsetFromCanvasCenter[1] - offsetFromCenter[1] + (rectangle[0][1] - rectangle[1][1]) / 2,
-              ],
-              [
-                offsetFromCanvasCenter[0] - offsetFromCenter[0] + (rectangle[1][0] - rectangle[0][0]) / 2,
-                offsetFromCanvasCenter[1] - offsetFromCenter[1] + (rectangle[1][1] - rectangle[0][1]) / 2,
-              ]
-            ] as [[number, number], [number, number]];
+      if (drag && drag.object) {
+        if (drag.object.type === "vertex") {
+          setVertices([
+            ...vertices.slice(0, drag.object.index),
+            [
+              offsetFromCanvasCenter[0] - drag.object.offsetFromCenter[0],
+              offsetFromCanvasCenter[1] - drag.object.offsetFromCenter[1],
+            ],
+            ...vertices.slice(drag.object.index + 1),
+          ]);
+        } else if (drag.object.type === "anchor") {
+          const { shapeIndex, anchorIndex, offsetFromCenter: offsetFromVertexCenter } = drag.object;
+          const newRectangle = [[...rectangles[shapeIndex][0]], [...rectangles[shapeIndex][1]]] as [[number, number], [number, number]];
+          newRectangle[anchorIndex] = [offsetFromCanvasCenter[0] - offsetFromVertexCenter[0], offsetFromCanvasCenter[1] - offsetFromVertexCenter[1]];
+          setRectangles([
+            ...rectangles.slice(0, drag.object.shapeIndex),
+            newRectangle,
+            ...rectangles.slice(drag.object.shapeIndex + 1),
+          ]);
+        } else {
+          const { index, offsetFromCenter } = drag.object;
+          const rectangle = rectangles[index];
+          const newRectangle = [
+            [
+              offsetFromCanvasCenter[0] - offsetFromCenter[0] + (rectangle[0][0] - rectangle[1][0]) / 2,
+              offsetFromCanvasCenter[1] - offsetFromCenter[1] + (rectangle[0][1] - rectangle[1][1]) / 2,
+            ],
+            [
+              offsetFromCanvasCenter[0] - offsetFromCenter[0] + (rectangle[1][0] - rectangle[0][0]) / 2,
+              offsetFromCanvasCenter[1] - offsetFromCenter[1] + (rectangle[1][1] - rectangle[0][1]) / 2,
+            ]
+          ] as [[number, number], [number, number]];
 
-            setRectangles([
-              ...rectangles.slice(0, index),
-              newRectangle,
-              ...rectangles.slice(index + 1),
-            ]);
-          }
+          setRectangles([
+            ...rectangles.slice(0, index),
+            newRectangle,
+            ...rectangles.slice(index + 1),
+          ]);
         }
+      }
 
-        if (drag) {
-          setDrag({
-            ...drag,
-            currentOffsetFromCanvasCenter: offsetFromCanvasCenter,
-          });
-        }
+      if (drag) {
+        setDrag({
+          ...drag,
+          currentOffsetFromCanvasCenter: offsetFromCanvasCenter,
+        });
       }
     };
 
     const mouseUpWindow = (e: MouseEvent) => {
-      if (e.button === 0) {
-        const rect = canvas.getBoundingClientRect();
-        const offsetFromCanvasCenter = [
-          e.clientX - rect.x - rect.width / 2,
-          e.clientY - rect.y - rect.height / 2,
-        ] as [number, number];
+      const rect = canvas.getBoundingClientRect();
+      const offsetFromCanvasCenter = [
+        e.clientX - rect.x - rect.width / 2,
+        e.clientY - rect.y - rect.height / 2,
+      ] as [number, number];
 
+      if (e.button === 0) {
         if (drag) {
           if (drag.object) {
             if (drag.object.type === "vertex") {
@@ -1369,25 +1368,29 @@ function PersistentHomologyEditor({ setView, vertices, setVertices }: Persistent
                 setSelectedObject({ type: "vertex", index: vertices.length });
                 setVertices([...vertices, offsetFromCanvasCenter]);
               }
-            } else {
-              if (
-                Math.pow(
-                  drag.initialOffsetFromCanvasCenter[0] -
-                  offsetFromCanvasCenter[0],
-                  2
-                ) +
-                Math.pow(
-                  drag.initialOffsetFromCanvasCenter[1] -
-                  offsetFromCanvasCenter[1],
-                  2
-                ) >=
-                25
-              ) {
-                setSelectedObject({ type: "shape", index: rectangles.length });
-                setRectangles([...rectangles, [drag.initialOffsetFromCanvasCenter, offsetFromCanvasCenter]]);
-              }
             }
           }
+        }
+
+        setDrag(null);
+      } else if (e.button === 2 && drag && !drag.object) {
+        if (
+          Math.pow(
+            drag.initialOffsetFromCanvasCenter[0] -
+            offsetFromCanvasCenter[0],
+            2
+          ) +
+          Math.pow(
+            drag.initialOffsetFromCanvasCenter[1] -
+            offsetFromCanvasCenter[1],
+            2
+          ) >=
+          25
+        ) {
+          setSelectedObject({ type: "shape", index: rectangles.length });
+          setRectangles([...rectangles, [drag.initialOffsetFromCanvasCenter, offsetFromCanvasCenter]]);
+          e.preventDefault();
+          e.stopPropagation();
         }
 
         setDrag(null);
@@ -1402,17 +1405,24 @@ function PersistentHomologyEditor({ setView, vertices, setVertices }: Persistent
           setVertices([...vertices.slice(0, selectedObject.index), ...vertices.slice(selectedObject.index + 1)]);
         }
         setSelectedObject(null);
+        setDrag(null);
       }
     };
+
+    const contextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    }
 
     draw();
 
     canvas.addEventListener("mousedown", mouseDownCanvas);
+    canvas.addEventListener("contextmenu", contextMenu);
     window.addEventListener("mousemove", mouseMoveWindow);
     window.addEventListener("mouseup", mouseUpWindow);
     window.addEventListener("keydown", windowKeyDown);
     return () => {
       canvas.removeEventListener("mousedown", mouseDownCanvas);
+      canvas.removeEventListener("contextmenu", contextMenu);
       window.removeEventListener("mousemove", mouseMoveWindow);
       window.removeEventListener("mouseup", mouseUpWindow);
       window.removeEventListener("keydown", windowKeyDown);
@@ -1421,13 +1431,13 @@ function PersistentHomologyEditor({ setView, vertices, setVertices }: Persistent
 
   return (
     <div className="flex">
-      <div className="grow overflow-auto bg-slate-200 p-2 space-y-3">
-        <div className="flex gap-3">
+      <div className="grow overflow-auto border-r space-y-3">
+        <div className="flex gap-3 border-b p-2">
           <button
             onClick={() => {
               setEditor('shape');
             }}
-            className={`${editor === 'shape' ? 'bg-slate-700' : 'bg-slate-500'} text-white p-1 rounded`}
+            className={`${editor === 'shape' ? 'bg-pink-200' : ''} p-1 rounded`}
           >
             Shape editor
           </button>
@@ -1435,22 +1445,40 @@ function PersistentHomologyEditor({ setView, vertices, setVertices }: Persistent
             onClick={() => {
               setEditor('vertex');
             }}
-            className={`${editor === 'vertex' ? 'bg-slate-700' : 'bg-slate-500'} text-white p-1 rounded`}
+            className={`${editor === 'vertex' ? 'bg-pink-200' : ''} p-1 rounded`}
           >
             Vertex editor
           </button>
         </div>
-        {editor === 'vertex' && vertices.length > 0 && (
+        <div className="p-2">
           <button
             onClick={() => {
-              setView('details');
+              if (editor === 'shape') {
+                setRectangles([]);
+              }
+              else {
+                setVertices([]);
+              }
             }}
-            className='bg-slate-700 text-white p-1 rounded'
+            className="rounded bg-rose-200 p-1"
           >
-            View persistent homology
+            Delete all
           </button>
+        </div>
+        {editor === 'vertex' && vertices.length > 0 && (
+          <div className="p-2">
+            <button
+              onClick={() => {
+                setView('details');
+              }}
+              className="rounded bg-blue-200 p-1"
+            >
+              View persistent homology
+            </button>
+          </div>
         )}
         {editor === 'shape' && rectangles.length > 0 && (<div>
+          <div className="p-2">
           <button
             onClick={() => {
               setDrag(null);
@@ -1486,12 +1514,29 @@ function PersistentHomologyEditor({ setView, vertices, setVertices }: Persistent
               setVertices(newVertices);
               setEditor('vertex');
             }}
-            className={'bg-slate-700 text-white p-1 rounded'}
+            className="rounded bg-blue-200 p-1"
           >
             Sample random points
           </button>
+          </div>
         </div>)}
-        {vertices.length === 0 && <p>Click on the canvas to create vertices.</p>}
+        <div className="p-2">
+          <p>Help:</p>
+          {editor === 'shape' && (
+            <ul>
+              <li>Create rectangles with the right mouse button.</li>
+              <li> Drag rectangles with the left mouse button.</li>
+              <li>Delete rectangles with the delete key.</li>
+            </ul>
+          )}
+          {editor === 'vertex' && (
+            <ul>
+              <li>Click on the canvas with the left mouse button to create vertices.</li>
+              <li>You can drag the vertices with the left mouse button.</li>
+              <li>Delete vertices with the delete key.</li>
+            </ul>
+          )}
+        </div>
       </div>
       <div>
         <canvas ref={canvasRef}></canvas>
@@ -1503,16 +1548,18 @@ function PersistentHomologyEditor({ setView, vertices, setVertices }: Persistent
 function PersistentHomology() {
   const [view, setView] = useState<'editor' | 'details'>('editor');
   const [vertices, setVertices] = useState<[number, number][]>([]);
+  // Each rectangle is represented by a pair of diagonally opposite vertices.
+  const [rectangles, setRectangles] = useState<[[number, number], [number, number]][]>([]);
 
 
   if (view === 'details') { return <PersistentHomologyDetails vertices={vertices} setView={setView} />; }
-  else { return <PersistentHomologyEditor vertices={vertices} setVertices={setVertices} setView={setView} /> }
+  else { return <PersistentHomologyEditor vertices={vertices} setVertices={setVertices} setView={setView} rectangles={rectangles} setRectangles={setRectangles} /> }
 }
 
 function App() {
   return (
     <HashRouter>
-      <div className="h-10 p-2 flex gap-5 items-center bg-slate-900 text-white">
+      <div className="h-10 p-2 flex gap-5 items-center border-b">
         <Link to="">Homology</Link>
         <Link to="/persistent">Persistent homology</Link>
       </div>
