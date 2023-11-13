@@ -211,7 +211,7 @@ onmessage = (e) => {
           let functionValueAtCenter = 0.0;
           birthsAndDeaths.forEach(({ filtrationLevels: [birth, death] }) => {
             const point = [birth, death - birth];
-            const weight = point[1] / maxPersistence;
+            const weight = point[1];
             functionValueAtCenter +=
               (weight *
                 Math.exp(
