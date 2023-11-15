@@ -1459,6 +1459,8 @@ function PersistentHomologyEditor({ setView, vertices, setVertices, rectangles, 
               else {
                 setVertices([]);
               }
+              setDrag(null);
+              setSelectedObject(null);
             }}
             className="rounded bg-rose-200 p-1"
           >
